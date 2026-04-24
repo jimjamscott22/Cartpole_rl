@@ -1,0 +1,635 @@
+// CartPole environment implementation
+class CartPole {
+    constructor() {
+        this.gravity = 9.8;
+        this.masscart = 1.0;
+        this.masspole = 0.1;
+        this.total_mass = this.masspole + this.masscart;
+        this.length = 0.5;
+        this.polemass_length = this.masspole * this.length;
+        this.force_mag = 10.0;
+        this.tau = 0.02;
+        this.x_threshold = 2.4;
+        this.theta_threshold_radians = 12 * Math.PI / 180;
+        this.reset();
+    }
+    reset() {
+        this.state = [
+            (Math.random() * 2 - 1) * 0.05,
+            (Math.random() * 2 - 1) * 0.05,
+            (Math.random() * 2 - 1) * 0.05,
+            (Math.random() * 2 - 1) * 0.05
+        ];
+        this.steps_beyond_done = null;
+        return this.state.slice();
+    }
+    step(action) {
+        let x = this.state[0];
+        let x_dot = this.state[1];
+        let theta = this.state[2];
+        let theta_dot = this.state[3];
+
+        let force = action === 1 ? this.force_mag : -this.force_mag;
+        let costheta = Math.cos(theta);
+        let sintheta = Math.sin(theta);
+
+        let temp = (force + this.polemass_length * theta_dot * theta_dot * sintheta) / this.total_mass;
+        let thetaacc = (this.gravity * sintheta - costheta * temp) /
+                       (this.length * (4.0 / 3.0 - this.masspole * costheta * costheta / this.total_mass));
+        let xacc  = temp - this.polemass_length * thetaacc * costheta / this.total_mass;
+
+        x      = x + this.tau * x_dot;
+        x_dot  = x_dot + this.tau * xacc;
+        theta  = theta + this.tau * theta_dot;
+        theta_dot = theta_dot + this.tau * thetaacc;
+
+        this.state = [x, x_dot, theta, theta_dot];
+
+        let done = false;
+        if (x < -this.x_threshold || x > this.x_threshold ||
+            theta < -this.theta_threshold_radians || theta > this.theta_threshold_radians) {
+            done = true;
+        }
+        let reward = done ? 0 : 1;
+        return { state: this.state.slice(), reward: reward, done: done };
+    }
+}
+
+// Neural network for policy gradient
+class PolicyNetwork {
+    constructor(inputSize, hiddenSize, outputSize, learningRate) {
+        this.inputSize = inputSize;
+        this.hiddenSize = hiddenSize;
+        this.outputSize = outputSize;
+        this.learningRate = learningRate;
+        this.W1 = new Array(this.hiddenSize).fill(0).map(() =>
+            new Array(this.inputSize).fill(0).map(() => (Math.random() * 2 - 1) * 0.1));
+        this.b1 = new Array(this.hiddenSize).fill(0);
+        this.W2 = new Array(this.outputSize).fill(0).map(() =>
+            new Array(this.hiddenSize).fill(0).map(() => (Math.random() * 2 - 1) * 0.1));
+        this.b2 = new Array(this.outputSize).fill(0);
+    }
+
+    forward(x) {
+        const h = new Array(this.hiddenSize);
+        for (let i = 0; i < this.hiddenSize; i++) {
+            let sum = this.b1[i];
+            for (let j = 0; j < this.inputSize; j++) {
+                sum += this.W1[i][j] * x[j];
+            }
+            h[i] = Math.tanh(sum);
+        }
+        const z = new Array(this.outputSize);
+        for (let k = 0; k < this.outputSize; k++) {
+            let sum = this.b2[k];
+            for (let i = 0; i < this.hiddenSize; i++) {
+                sum += this.W2[k][i] * h[i];
+            }
+            z[k] = sum;
+        }
+        const maxZ = Math.max(...z);
+        const expZ = z.map(v => Math.exp(v - maxZ));
+        const sumExp = expZ.reduce((a, b) => a + b, 0);
+        const probs = expZ.map(v => v / sumExp);
+        return { probs: probs, h: h, z: z };
+    }
+
+    trainEpisode(states, actions, returns) {
+        let dW1 = new Array(this.hiddenSize).fill(0).map(() => new Array(this.inputSize).fill(0));
+        let db1 = new Array(this.hiddenSize).fill(0);
+        let dW2 = new Array(this.outputSize).fill(0).map(() => new Array(this.hiddenSize).fill(0));
+        let db2 = new Array(this.outputSize).fill(0);
+
+        for (let t = 0; t < states.length; t++) {
+            const x = states[t];
+            const action = actions[t];
+            const Gt = returns[t];
+            const { probs, h, z } = this.forward(x);
+            
+            const delta2 = new Array(this.outputSize);
+            for (let k = 0; k < this.outputSize; k++) {
+                delta2[k] = probs[k];
+                if (k === action) delta2[k] -= 1;
+                delta2[k] *= Gt;
+            }
+            
+            for (let k = 0; k < this.outputSize; k++) {
+                for (let i = 0; i < this.hiddenSize; i++) {
+                    dW2[k][i] += delta2[k] * h[i];
+                }
+                db2[k] += delta2[k];
+            }
+            
+            const delta1 = new Array(this.hiddenSize).fill(0);
+            for (let i = 0; i < this.hiddenSize; i++) {
+                let sum = 0;
+                for (let k = 0; k < this.outputSize; k++) {
+                    sum += this.W2[k][i] * delta2[k];
+                }
+                delta1[i] = sum * (1 - h[i] * h[i]);
+            }
+            
+            for (let i = 0; i < this.hiddenSize; i++) {
+                for (let j = 0; j < this.inputSize; j++) {
+                    dW1[i][j] += delta1[i] * x[j];
+                }
+                db1[i] += delta1[i];
+            }
+        }
+        
+        for (let i = 0; i < this.hiddenSize; i++) {
+            for (let j = 0; j < this.inputSize; j++) {
+                this.W1[i][j] += this.learningRate * dW1[i][j];
+            }
+            this.b1[i] += this.learningRate * db1[i];
+        }
+        for (let k = 0; k < this.outputSize; k++) {
+            for (let i = 0; i < this.hiddenSize; i++) {
+                this.W2[k][i] += this.learningRate * dW2[k][i];
+            }
+            this.b2[k] += this.learningRate * db2[k];
+        }
+    }
+}
+
+// Global variables
+const canvas = document.getElementById('cartpoleCanvas');
+const ctx = canvas.getContext('2d');
+const chartCanvas = document.getElementById('chartCanvas');
+const chartCtx = chartCanvas.getContext('2d');
+const networkSvg = document.getElementById('networkSvg');
+const statusBadge = document.getElementById('statusBadge');
+
+// Inputs
+const speedSlider = document.getElementById('speedSlider');
+const speedVal = document.getElementById('speedVal');
+const lrInput = document.getElementById('lrInput');
+const gammaInput = document.getElementById('gammaInput');
+const hiddenInput = document.getElementById('hiddenInput');
+const testModeToggle = document.getElementById('testModeToggle');
+
+speedSlider.oninput = () => {
+    speedVal.textContent = speedSlider.value + 'x';
+};
+
+let env = new CartPole();
+let learningRate = parseFloat(lrInput.value);
+let gamma = parseFloat(gammaInput.value);
+let hiddenSize = parseInt(hiddenInput.value);
+
+let policy = new PolicyNetwork(4, hiddenSize, 2, learningRate);
+
+let episode = 0;
+let episodeSteps = 0;
+let episodeRewards = 0;
+let episodeHistory = [];
+let runningReturns = [];
+let isPaused = true;
+let isTestMode = false;
+
+// Buttons
+const startBtn = document.getElementById('startBtn');
+const pauseBtn = document.getElementById('pauseBtn');
+const resetBtn = document.getElementById('resetBtn');
+const saveBtn = document.getElementById('saveBtn');
+const loadBtn = document.getElementById('loadBtn');
+const fileInput = document.getElementById('fileInput');
+
+startBtn.onclick = () => { isPaused = false; };
+pauseBtn.onclick = () => { isPaused = true; };
+
+testModeToggle.addEventListener('change', (e) => {
+    isTestMode = e.target.checked;
+    if (isTestMode) {
+        statusBadge.textContent = "Testing Mode";
+        statusBadge.classList.add('testing');
+    } else {
+        statusBadge.textContent = "Training Mode";
+        statusBadge.classList.remove('testing');
+    }
+});
+
+resetBtn.onclick = () => {
+    learningRate = parseFloat(lrInput.value);
+    gamma = parseFloat(gammaInput.value);
+    hiddenSize = parseInt(hiddenInput.value);
+
+    env = new CartPole();
+    policy = new PolicyNetwork(4, hiddenSize, 2, learningRate);
+    
+    episode = 0;
+    episodeSteps = 0;
+    episodeRewards = 0;
+    episodeHistory = [];
+    runningReturns = [];
+    isPaused = true;
+    initializeNetworkViz();
+    updateMetrics();
+    drawChart();
+    updateNetworkViz();
+    drawEnv(env.state);
+};
+
+saveBtn.onclick = () => {
+    const modelData = {
+        hiddenSize: policy.hiddenSize,
+        learningRate: policy.learningRate,
+        W1: policy.W1,
+        b1: policy.b1,
+        W2: policy.W2,
+        b2: policy.b2
+    };
+    const blob = new Blob([JSON.stringify(modelData)], {type: 'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'cartpole_model.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+};
+
+loadBtn.onclick = () => { fileInput.click(); };
+
+fileInput.onchange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = (event) => {
+        try {
+            const data = JSON.parse(event.target.result);
+            if (!data.W1 || !data.W2 || !data.hiddenSize) {
+                alert('Invalid model file');
+                return;
+            }
+
+            hiddenInput.value = data.hiddenSize;
+            lrInput.value = data.learningRate || 0.01;
+            
+            policy = new PolicyNetwork(4, data.hiddenSize, 2, data.learningRate || 0.01);
+            policy.W1 = data.W1;
+            policy.b1 = data.b1;
+            policy.W2 = data.W2;
+            policy.b2 = data.b2;
+            
+            env = new CartPole();
+            episode = 0;
+            episodeSteps = 0;
+            episodeRewards = 0;
+            episodeHistory = [];
+            runningReturns = [];
+            isPaused = true;
+            
+            initializeNetworkViz();
+            updateNetworkViz();
+            updateMetrics();
+            drawChart();
+            drawEnv(env.state);
+            
+            alert('Model loaded successfully!');
+        } catch (err) {
+            alert('Error loading model');
+        }
+    };
+    reader.readAsText(file);
+    fileInput.value = '';
+};
+
+function chooseAction(state) {
+    const { probs } = policy.forward(state);
+    
+    if (isTestMode) {
+        let maxProb = -1;
+        let bestAction = 0;
+        for (let i = 0; i < probs.length; i++) {
+            if (probs[i] > maxProb) {
+                maxProb = probs[i];
+                bestAction = i;
+            }
+        }
+        return bestAction;
+    }
+
+    const rnd = Math.random();
+    let accum = 0;
+    for (let i = 0; i < probs.length; i++) {
+        accum += probs[i];
+        if (rnd < accum) return i;
+    }
+    return probs.length - 1;
+}
+
+function computeReturns(rewards, gamma) {
+    const returns = new Array(rewards.length);
+    let G = 0;
+    for (let t = rewards.length - 1; t >= 0; t--) {
+        G = rewards[t] + gamma * G;
+        returns[t] = G;
+    }
+    const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
+    const std = Math.sqrt(returns.reduce((a, b) => a + (b - mean) * (b - mean), 0) / returns.length) || 1;
+    return returns.map(r => (r - mean) / (std));
+}
+
+// Drawing functions
+function drawEnv(state) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    const worldWidth = env.x_threshold * 2;
+    const scale = canvas.width / worldWidth;
+    const cartY = canvas.height * 0.75;
+    const cartWidth = 60;
+    const cartHeight = 30;
+    const poleLength = scale * (2 * env.length);
+
+    const x = state[0];
+    const theta = state[2];
+    const cartX = (x + env.x_threshold) * scale - cartWidth / 2;
+
+    // Draw track
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(20, cartY + cartHeight / 2);
+    ctx.lineTo(canvas.width - 20, cartY + cartHeight / 2);
+    ctx.stroke();
+
+    // Draw cart
+    ctx.fillStyle = '#38bdf8';
+    ctx.shadowColor = '#38bdf8';
+    ctx.shadowBlur = 15;
+    ctx.beginPath();
+    if (ctx.roundRect) {
+        ctx.roundRect(cartX, cartY - cartHeight / 2, cartWidth, cartHeight, 6);
+    } else {
+        ctx.rect(cartX, cartY - cartHeight / 2, cartWidth, cartHeight); // Fallback
+    }
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Draw pole
+    const poleX = cartX + cartWidth / 2;
+    const poleY = cartY - cartHeight / 2;
+    const poleEndX = poleX + poleLength * Math.sin(theta);
+    const poleEndY = poleY - poleLength * Math.cos(theta);
+    
+    ctx.strokeStyle = '#ef4444';
+    ctx.lineWidth = 8;
+    ctx.lineCap = 'round';
+    ctx.shadowColor = '#ef4444';
+    ctx.shadowBlur = 15;
+    ctx.beginPath();
+    ctx.moveTo(poleX, poleY);
+    ctx.lineTo(poleEndX, poleEndY);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Draw axle
+    ctx.fillStyle = '#f8fafc';
+    ctx.beginPath();
+    ctx.arc(poleX, poleY, 5, 0, 2 * Math.PI);
+    ctx.fill();
+}
+
+function drawChart() {
+    chartCtx.clearRect(0, 0, chartCanvas.width, chartCanvas.height);
+    
+    // Draw axes
+    chartCtx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+    chartCtx.lineWidth = 1;
+    chartCtx.beginPath();
+    chartCtx.moveTo(40, 10);
+    chartCtx.lineTo(40, chartCanvas.height - 25);
+    chartCtx.lineTo(chartCanvas.width - 10, chartCanvas.height - 25);
+    chartCtx.stroke();
+
+    if (runningReturns.length === 0) return;
+
+    const maxEpisodes = runningReturns.length;
+    const maxVal = Math.max(...runningReturns, 10);
+    const minVal = Math.min(...runningReturns, 0);
+
+    const plotWidth = chartCanvas.width - 50;
+    const plotHeight = chartCanvas.height - 35;
+
+    // Create Gradient for fill
+    const gradient = chartCtx.createLinearGradient(0, 0, 0, chartCanvas.height);
+    gradient.addColorStop(0, 'rgba(16, 185, 129, 0.4)');
+    gradient.addColorStop(1, 'rgba(16, 185, 129, 0.0)');
+
+    chartCtx.strokeStyle = '#10b981';
+    chartCtx.lineWidth = 2;
+    chartCtx.shadowColor = '#10b981';
+    chartCtx.shadowBlur = 10;
+    
+    chartCtx.beginPath();
+    chartCtx.moveTo(40, chartCanvas.height - 25);
+    
+    for (let i = 0; i < maxEpisodes; i++) {
+        const x = 40 + (i / (maxEpisodes - 1 || 1)) * plotWidth;
+        const yNorm = (runningReturns[i] - minVal) / (maxVal - minVal + 1e-6);
+        const y = (chartCanvas.height - 25) - yNorm * plotHeight;
+        if (i === 0) chartCtx.moveTo(x, y);
+        else chartCtx.lineTo(x, y);
+    }
+    
+    chartCtx.stroke();
+    chartCtx.shadowBlur = 0;
+    
+    // Fill under the line
+    chartCtx.lineTo(40 + plotWidth, chartCanvas.height - 25);
+    chartCtx.lineTo(40, chartCanvas.height - 25);
+    chartCtx.fillStyle = gradient;
+    chartCtx.fill();
+
+    // Draw labels
+    chartCtx.fillStyle = '#94a3b8';
+    chartCtx.font = '12px Inter';
+    chartCtx.fillText('Episode', chartCanvas.width / 2 - 20, chartCanvas.height - 5);
+    chartCtx.save();
+    chartCtx.translate(15, chartCanvas.height / 2);
+    chartCtx.rotate(-Math.PI / 2);
+    chartCtx.fillText('Return', -20, 0);
+    chartCtx.restore();
+}
+
+function initializeNetworkViz() {
+    networkSvg.innerHTML = '';
+    const width = parseInt(networkSvg.getAttribute('width'));
+    const height = parseInt(networkSvg.getAttribute('height'));
+    const marginX = 40;
+    const layerX = [marginX, width / 2, width - marginX];
+
+    const inputSize = policy.inputSize;
+    const hiddenSize = policy.hiddenSize;
+    const outputSize = policy.outputSize;
+
+    const inputNodes = [];
+    const hiddenNodes = [];
+    const outputNodes = [];
+
+    function layerPositions(n) {
+        const spacing = height / (n + 1);
+        const positions = [];
+        for (let i = 0; i < n; i++) {
+            positions.push((i + 1) * spacing);
+        }
+        return positions;
+    }
+    const inputYs = layerPositions(inputSize);
+    const hiddenYs = layerPositions(hiddenSize);
+    const outputYs = layerPositions(outputSize);
+
+    for (let i = 0; i < inputSize; i++) {
+        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        circle.setAttribute('cx', layerX[0]);
+        circle.setAttribute('cy', inputYs[i]);
+        circle.setAttribute('r', 8);
+        circle.setAttribute('fill', '#38bdf8');
+        networkSvg.appendChild(circle);
+        inputNodes.push({ x: layerX[0], y: inputYs[i] });
+    }
+    for (let i = 0; i < hiddenSize; i++) {
+        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        circle.setAttribute('cx', layerX[1]);
+        circle.setAttribute('cy', hiddenYs[i]);
+        circle.setAttribute('r', 10);
+        circle.setAttribute('fill', '#f59e0b');
+        networkSvg.appendChild(circle);
+        hiddenNodes.push({ x: layerX[1], y: hiddenYs[i] });
+    }
+    for (let i = 0; i < outputSize; i++) {
+        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        circle.setAttribute('cx', layerX[2]);
+        circle.setAttribute('cy', outputYs[i]);
+        circle.setAttribute('r', 12);
+        circle.setAttribute('fill', '#10b981');
+        networkSvg.appendChild(circle);
+        outputNodes.push({ x: layerX[2], y: outputYs[i] });
+    }
+
+    networkSvg.weightLines1 = [];
+    for (let i = 0; i < inputSize; i++) {
+        for (let j = 0; j < hiddenSize; j++) {
+            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            line.setAttribute('x1', inputNodes[i].x);
+            line.setAttribute('y1', inputNodes[i].y);
+            line.setAttribute('x2', hiddenNodes[j].x);
+            line.setAttribute('y2', hiddenNodes[j].y);
+            line.setAttribute('stroke', 'rgba(255,255,255,0.1)');
+            line.setAttribute('stroke-width', 1);
+            networkSvg.insertBefore(line, networkSvg.firstChild);
+            networkSvg.weightLines1.push({ element: line, i: j, j: i });
+        }
+    }
+    networkSvg.weightLines2 = [];
+    for (let i = 0; i < hiddenSize; i++) {
+        for (let j = 0; j < outputSize; j++) {
+            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            line.setAttribute('x1', hiddenNodes[i].x);
+            line.setAttribute('y1', hiddenNodes[i].y);
+            line.setAttribute('x2', outputNodes[j].x);
+            line.setAttribute('y2', outputNodes[j].y);
+            line.setAttribute('stroke', 'rgba(255,255,255,0.1)');
+            line.setAttribute('stroke-width', 1);
+            networkSvg.insertBefore(line, networkSvg.firstChild);
+            networkSvg.weightLines2.push({ element: line, k: j, i: i });
+        }
+    }
+}
+
+function updateNetworkViz() {
+    let maxAbsW1 = 0;
+    for (let i = 0; i < policy.hiddenSize; i++) {
+        for (let j = 0; j < policy.inputSize; j++) {
+            maxAbsW1 = Math.max(maxAbsW1, Math.abs(policy.W1[i][j]));
+        }
+    }
+    let maxAbsW2 = 0;
+    for (let k = 0; k < policy.outputSize; k++) {
+        for (let i = 0; i < policy.hiddenSize; i++) {
+            maxAbsW2 = Math.max(maxAbsW2, Math.abs(policy.W2[k][i]));
+        }
+    }
+    const maxW = Math.max(maxAbsW1, maxAbsW2, 1e-6);
+    
+    networkSvg.weightLines1.forEach(item => {
+        const weight = policy.W1[item.i][item.j];
+        const norm = Math.abs(weight) / maxW;
+        const thickness = 1 + 3 * norm;
+        const color = weight >= 0 ? `rgba(16, 185, 129, ${norm})` : `rgba(239, 68, 68, ${norm})`;
+        item.element.setAttribute('stroke', color);
+        item.element.setAttribute('stroke-width', thickness);
+    });
+    
+    networkSvg.weightLines2.forEach(item => {
+        const weight = policy.W2[item.k][item.i];
+        const norm = Math.abs(weight) / maxW;
+        const thickness = 1 + 3 * norm;
+        const color = weight >= 0 ? `rgba(16, 185, 129, ${norm})` : `rgba(239, 68, 68, ${norm})`;
+        item.element.setAttribute('stroke', color);
+        item.element.setAttribute('stroke-width', thickness);
+    });
+}
+
+function updateMetrics() {
+    document.getElementById('episode').textContent = episode;
+    document.getElementById('steps').textContent = episodeSteps;
+    document.getElementById('episodeReturn').textContent = episodeRewards.toFixed(0);
+    const last50 = runningReturns.slice(-50);
+    const avg = last50.reduce((a, b) => a + b, 0) / (last50.length || 1);
+    document.getElementById('avgReturn').textContent = avg.toFixed(2);
+}
+
+function stepLoop() {
+    if (!isPaused) {
+        const stepsPerFrame = parseInt(speedSlider.value);
+        
+        for (let s = 0; s < stepsPerFrame; s++) {
+            const state = env.state;
+            const action = chooseAction(state);
+            const { state: nextState, reward, done } = env.step(action);
+            
+            episodeSteps += 1;
+            episodeRewards += reward;
+            
+            if (!isTestMode) {
+                episodeHistory.push({ state: state.slice(), action: action, reward: reward });
+            }
+
+            if (done || episodeSteps >= 500) {
+                if (!isTestMode) {
+                    const rewards = episodeHistory.map(item => item.reward);
+                    const returns = computeReturns(rewards, gamma);
+                    const states = episodeHistory.map(item => item.state);
+                    const actions = episodeHistory.map(item => item.action);
+                    policy.trainEpisode(states, actions, returns);
+                    runningReturns.push(episodeRewards);
+                }
+                
+                episode += 1;
+                episodeSteps = 0;
+                episodeRewards = 0;
+                episodeHistory = [];
+                env.reset();
+            }
+        }
+        
+        updateMetrics();
+        drawChart();
+        updateNetworkViz();
+        drawEnv(env.state);
+    }
+    requestAnimationFrame(stepLoop);
+}
+
+// Initialize
+initializeNetworkViz();
+updateNetworkViz();
+drawEnv(env.state);
+drawChart();
+updateMetrics();
+requestAnimationFrame(stepLoop);
