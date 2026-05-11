@@ -9,6 +9,7 @@ Welcome to the **CartPole RL Sandbox**! This is a simple, lightweight, and pure-
 *   **🎮 Pure Vanilla JS**: No TensorFlow.js, no PyTorch, no external dependencies. The environment and the neural network are written from scratch!
 *   **🎨 Stunning UI**: A sleek, dark-mode dashboard featuring glassmorphism, glowing neons, and modern typography.
 *   **🧠 Live Neural Network Visualization**: Watch the weights of the hidden layer shift and change colors in real-time as the agent learns.
+*   **🎯 Live Action Confidence**: See the policy's left/right action probabilities and confidence update continuously from the model's current state prediction.
 *   **📈 Performance Tracking**: A live, auto-updating chart showing the episode returns.
 *   **🧪 Test Mode**: Switch off exploration at any time to see your agent perform pure inference.
 *   **💾 Save & Load**: Found a hyperparameter combo that works? Save the trained model to a `.json` file and load it later!

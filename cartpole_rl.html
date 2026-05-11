@@ -81,6 +81,28 @@
             <aside class="network-panel glass-panel">
                 <h3>Policy Network</h3>
                 <svg id="networkSvg" width="280" height="250"></svg>
+
+                <div class="policy-insight">
+                    <h3>Policy Insight</h3>
+                    <div class="prob-row">
+                        <span class="prob-label">P(Left)</span>
+                        <div class="prob-bar">
+                            <div class="prob-fill left" id="probLeftFill"></div>
+                        </div>
+                        <span class="prob-value" id="probLeftVal">50.0%</span>
+                    </div>
+                    <div class="prob-row">
+                        <span class="prob-label">P(Right)</span>
+                        <div class="prob-bar">
+                            <div class="prob-fill right" id="probRightFill"></div>
+                        </div>
+                        <span class="prob-value" id="probRightVal">50.0%</span>
+                    </div>
+                    <div class="confidence-row">
+                        Confidence:
+                        <span id="policyConfidence">0.0%</span>
+                    </div>
+                </div>
                 
                 <div class="metrics-container" id="metrics">
                     <div class="metric-box">
