@@ -159,6 +159,11 @@ const chartCanvas = document.getElementById('chartCanvas');
 const chartCtx = chartCanvas.getContext('2d');
 const networkSvg = document.getElementById('networkSvg');
 const statusBadge = document.getElementById('statusBadge');
+const probLeftFill = document.getElementById('probLeftFill');
+const probRightFill = document.getElementById('probRightFill');
+const probLeftVal = document.getElementById('probLeftVal');
+const probRightVal = document.getElementById('probRightVal');
+const policyConfidence = document.getElementById('policyConfidence');
 
 // Inputs
 const speedSlider = document.getElementById('speedSlider');
@@ -186,6 +191,7 @@ let episodeHistory = [];
 let runningReturns = [];
 let isPaused = true;
 let isTestMode = false;
+let latestActionProbs = [0.5, 0.5];
 
 // Buttons
 const startBtn = document.getElementById('startBtn');
@@ -216,6 +222,7 @@ resetBtn.onclick = () => {
 
     env = new CartPole();
     policy = new PolicyNetwork(4, hiddenSize, 2, learningRate);
+    latestActionProbs = policy.forward(env.state).probs;
     
     episode = 0;
     episodeSteps = 0;
@@ -225,6 +232,7 @@ resetBtn.onclick = () => {
     isPaused = true;
     initializeNetworkViz();
     updateMetrics();
+    updatePolicyInsight();
     drawChart();
     updateNetworkViz();
     drawEnv(env.state);
@@ -275,6 +283,7 @@ fileInput.onchange = (e) => {
             policy.b2 = data.b2;
             
             env = new CartPole();
+            latestActionProbs = policy.forward(env.state).probs;
             episode = 0;
             episodeSteps = 0;
             episodeRewards = 0;
@@ -285,6 +294,7 @@ fileInput.onchange = (e) => {
             initializeNetworkViz();
             updateNetworkViz();
             updateMetrics();
+            updatePolicyInsight();
             drawChart();
             drawEnv(env.state);
             
@@ -299,6 +309,7 @@ fileInput.onchange = (e) => {
 
 function chooseAction(state) {
     const { probs } = policy.forward(state);
+    latestActionProbs = probs.slice();
     
     if (isTestMode) {
         let maxProb = -1;
@@ -584,6 +595,18 @@ function updateMetrics() {
     document.getElementById('avgReturn').textContent = avg.toFixed(2);
 }
 
+function updatePolicyInsight() {
+    const left = latestActionProbs[0] || 0;
+    const right = latestActionProbs[1] || 0;
+    const confidence = Math.max(left, right);
+
+    probLeftFill.style.width = `${(left * 100).toFixed(1)}%`;
+    probRightFill.style.width = `${(right * 100).toFixed(1)}%`;
+    probLeftVal.textContent = `${(left * 100).toFixed(1)}%`;
+    probRightVal.textContent = `${(right * 100).toFixed(1)}%`;
+    policyConfidence.textContent = `${(confidence * 100).toFixed(1)}%`;
+}
+
 function stepLoop() {
     if (!isPaused) {
         const stepsPerFrame = parseInt(speedSlider.value);
@@ -619,6 +642,7 @@ function stepLoop() {
         }
         
         updateMetrics();
+        updatePolicyInsight();
         drawChart();
         updateNetworkViz();
         drawEnv(env.state);
@@ -629,6 +653,8 @@ function stepLoop() {
 // Initialize
 initializeNetworkViz();
 updateNetworkViz();
+latestActionProbs = policy.forward(env.state).probs;
+updatePolicyInsight();
 drawEnv(env.state);
 drawChart();
 updateMetrics();
