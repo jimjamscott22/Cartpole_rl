@@ -152,6 +152,125 @@ class PolicyNetwork {
     }
 }
 
+// ===== Genetic Algorithm helpers =====
+
+function cloneNetwork(net) {
+    const copy = new PolicyNetwork(net.inputSize, net.hiddenSize, net.outputSize, net.learningRate);
+    copy.W1 = net.W1.map(row => row.slice());
+    copy.b1 = net.b1.slice();
+    copy.W2 = net.W2.map(row => row.slice());
+    copy.b2 = net.b2.slice();
+    return copy;
+}
+
+function gaussian() {
+    const u = 1 - Math.random();
+    const v = Math.random();
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+
+function mutate(net, sigma) {
+    const m = cloneNetwork(net);
+    for (let i = 0; i < m.hiddenSize; i++) {
+        for (let j = 0; j < m.inputSize; j++) m.W1[i][j] += gaussian() * sigma;
+        m.b1[i] += gaussian() * sigma;
+    }
+    for (let k = 0; k < m.outputSize; k++) {
+        for (let i = 0; i < m.hiddenSize; i++) m.W2[k][i] += gaussian() * sigma;
+        m.b2[k] += gaussian() * sigma;
+    }
+    return m;
+}
+
+// ===== USER TODO: implement evolution =====
+//
+// Called at the end of each generation, once every cart has terminated.
+// `networks`  : array of PolicyNetwork (the current generation)
+// `fitnesses` : array of numbers (total reward each cart earned, same order)
+// `popSize`   : how many networks to return for the next generation
+// `sigma`     : mutation magnitude (read from the UI)
+//
+// Must return a fresh array of `popSize` PolicyNetwork instances.
+//
+// Helpers you can use:
+//   mutate(net, sigma)     -> returns a noise-perturbed COPY
+//   cloneNetwork(net)      -> returns an exact COPY (no mutation)
+//
+// Design decisions worth thinking through:
+//   1. SELECTION  - who gets to breed?
+//        * Top-k:          sort by fitness, take best K.        Simple, greedy, can lose diversity.
+//        * Tournament:     pick N at random, keep the best.     Tunable pressure via N.
+//        * Roulette:       probability ∝ fitness.               Smooth, but weak when fitnesses are close.
+//   2. ELITISM    - do the top performers survive UNCHANGED?
+//        Without elitism the best can be lost to bad mutations. With too much, diversity collapses.
+//   3. MUTATION   - mutate(parent, sigma) is provided.
+//        Bigger sigma = more exploration but more chaos. The slider lets the user tune it.
+function evolve(networks, fitnesses, popSize, sigma) {
+    // TODO: write 5-15 lines implementing your chosen GA strategy.
+    // Placeholder (random restart - terrible, will never learn) so the loop doesn't crash:
+    return networks.map(n => mutate(n, sigma));
+}
+
+// ===== Population: runs N carts in lockstep =====
+
+class Population {
+    constructor(size, hiddenSize) {
+        this.size = size;
+        this.networks = [];
+        this.envs = [];
+        this.alive = [];
+        this.fitnesses = [];
+        this.steps = [];
+        for (let i = 0; i < size; i++) {
+            this.networks.push(new PolicyNetwork(4, hiddenSize, 2, 0));
+            this.envs.push(new CartPole());
+            this.alive.push(true);
+            this.fitnesses.push(0);
+            this.steps.push(0);
+        }
+        this.generation = 0;
+        this.bestFitnessEver = 0;
+    }
+
+    stepAll() {
+        for (let i = 0; i < this.size; i++) {
+            if (!this.alive[i]) continue;
+            const { probs } = this.networks[i].forward(this.envs[i].state);
+            const action = probs[0] >= probs[1] ? 0 : 1;
+            const { reward, done } = this.envs[i].step(action);
+            this.fitnesses[i] += reward;
+            this.steps[i] += 1;
+            if (done || this.steps[i] >= 500) this.alive[i] = false;
+        }
+    }
+
+    allDone() {
+        return this.alive.every(a => !a);
+    }
+
+    bestIndex() {
+        let best = 0;
+        for (let i = 1; i < this.size; i++) {
+            if (this.fitnesses[i] > this.fitnesses[best]) best = i;
+        }
+        return best;
+    }
+
+    nextGeneration(sigma) {
+        const best = this.bestIndex();
+        this.bestFitnessEver = Math.max(this.bestFitnessEver, this.fitnesses[best]);
+        const newNetworks = evolve(this.networks, this.fitnesses, this.size, sigma);
+        this.networks = newNetworks;
+        for (let i = 0; i < this.size; i++) {
+            this.envs[i].reset();
+            this.alive[i] = true;
+            this.fitnesses[i] = 0;
+            this.steps[i] = 0;
+        }
+        this.generation += 1;
+    }
+}
+
 // Global variables
 const canvas = document.getElementById('cartpoleCanvas');
 const ctx = canvas.getContext('2d');
@@ -172,6 +291,10 @@ const lrInput = document.getElementById('lrInput');
 const gammaInput = document.getElementById('gammaInput');
 const hiddenInput = document.getElementById('hiddenInput');
 const testModeToggle = document.getElementById('testModeToggle');
+const algoSelect = document.getElementById('algoSelect');
+const popSizeInput = document.getElementById('popSizeInput');
+const mutationSigmaInput = document.getElementById('mutationSigmaInput');
+const testModeContainer = document.getElementById('testModeContainer');
 
 speedSlider.oninput = () => {
     speedVal.textContent = speedSlider.value + 'x';
@@ -184,6 +307,9 @@ let hiddenSize = parseInt(hiddenInput.value);
 
 let policy = new PolicyNetwork(4, hiddenSize, 2, learningRate);
 
+let algorithm = algoSelect.value;
+let population = null;
+
 let episode = 0;
 let episodeSteps = 0;
 let episodeRewards = 0;
@@ -192,6 +318,23 @@ let runningReturns = [];
 let isPaused = true;
 let isTestMode = false;
 let latestActionProbs = [0.5, 0.5];
+
+function applyAlgorithmVisibility() {
+    const isGA = algorithm === 'ga';
+    document.querySelectorAll('.reinforce-only').forEach(el => el.style.display = isGA ? 'none' : '');
+    document.querySelectorAll('.ga-only').forEach(el => el.style.display = isGA ? '' : 'none');
+    testModeContainer.style.display = isGA ? 'none' : '';
+    document.querySelector('.metric-box:nth-child(1) .metric-label').textContent = isGA ? 'Generation' : 'Episode';
+    document.querySelector('.metric-box:nth-child(3) .metric-label').textContent = isGA ? 'Best Fit' : 'Return';
+    document.querySelector('.metric-box:nth-child(4) .metric-label').textContent = isGA ? 'Mean Fit' : 'Avg (50)';
+}
+applyAlgorithmVisibility();
+
+algoSelect.addEventListener('change', () => {
+    algorithm = algoSelect.value;
+    applyAlgorithmVisibility();
+    resetBtn.onclick();
+});
 
 // Buttons
 const startBtn = document.getElementById('startBtn');
@@ -222,8 +365,17 @@ resetBtn.onclick = () => {
 
     env = new CartPole();
     policy = new PolicyNetwork(4, hiddenSize, 2, learningRate);
+
+    if (algorithm === 'ga') {
+        const popSize = Math.max(2, parseInt(popSizeInput.value) || 25);
+        population = new Population(popSize, hiddenSize);
+        policy = population.networks[0];
+    } else {
+        population = null;
+    }
+
     latestActionProbs = policy.forward(env.state).probs;
-    
+
     episode = 0;
     episodeSteps = 0;
     episodeRewards = 0;
@@ -235,7 +387,7 @@ resetBtn.onclick = () => {
     updatePolicyInsight();
     drawChart();
     updateNetworkViz();
-    drawEnv(env.state);
+    if (algorithm === 'ga') drawEnvMulti(); else drawEnv(env.state);
 };
 
 saveBtn.onclick = () => {
@@ -403,6 +555,57 @@ function drawEnv(state) {
     ctx.beginPath();
     ctx.arc(poleX, poleY, 5, 0, 2 * Math.PI);
     ctx.fill();
+}
+
+function drawEnvMulti() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (!population) return;
+
+    const worldWidth = env.x_threshold * 2;
+    const scale = canvas.width / worldWidth;
+    const cartY = canvas.height * 0.75;
+    const cartWidth = 30;
+    const cartHeight = 16;
+    const poleLength = scale * (2 * env.length);
+
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(20, cartY + cartHeight / 2);
+    ctx.lineTo(canvas.width - 20, cartY + cartHeight / 2);
+    ctx.stroke();
+
+    const bestIdx = population.bestIndex();
+    for (let i = 0; i < population.size; i++) {
+        const isBest = i === bestIdx;
+        const isAlive = population.alive[i];
+        if (!isAlive && !isBest) continue;
+
+        const state = population.envs[i].state;
+        const x = state[0];
+        const theta = state[2];
+        const cartX = (x + env.x_threshold) * scale - cartWidth / 2;
+        const alpha = isBest ? 1.0 : (isAlive ? 0.25 : 0.0);
+
+        ctx.fillStyle = isBest ? '#fbbf24' : `rgba(56, 189, 248, ${alpha})`;
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(cartX, cartY - cartHeight / 2, cartWidth, cartHeight, 3);
+        else ctx.rect(cartX, cartY - cartHeight / 2, cartWidth, cartHeight);
+        ctx.fill();
+
+        const poleX = cartX + cartWidth / 2;
+        const poleY = cartY - cartHeight / 2;
+        const poleEndX = poleX + poleLength * Math.sin(theta);
+        const poleEndY = poleY - poleLength * Math.cos(theta);
+
+        ctx.strokeStyle = isBest ? '#ef4444' : `rgba(239, 68, 68, ${alpha})`;
+        ctx.lineWidth = isBest ? 6 : 3;
+        ctx.beginPath();
+        ctx.moveTo(poleX, poleY);
+        ctx.lineTo(poleEndX, poleEndY);
+        ctx.stroke();
+    }
 }
 
 function drawChart() {
@@ -587,6 +790,15 @@ function updateNetworkViz() {
 }
 
 function updateMetrics() {
+    if (algorithm === 'ga' && population) {
+        document.getElementById('episode').textContent = population.generation;
+        const aliveCount = population.alive.filter(a => a).length;
+        document.getElementById('steps').textContent = aliveCount + '/' + population.size;
+        document.getElementById('episodeReturn').textContent = population.bestFitnessEver.toFixed(0);
+        const mean = population.fitnesses.reduce((a, b) => a + b, 0) / population.size;
+        document.getElementById('avgReturn').textContent = mean.toFixed(1);
+        return;
+    }
     document.getElementById('episode').textContent = episode;
     document.getElementById('steps').textContent = episodeSteps;
     document.getElementById('episodeReturn').textContent = episodeRewards.toFixed(0);
@@ -607,18 +819,46 @@ function updatePolicyInsight() {
     policyConfidence.textContent = `${(confidence * 100).toFixed(1)}%`;
 }
 
+function stepLoopGA() {
+    const stepsPerFrame = parseInt(speedSlider.value);
+    const sigma = parseFloat(mutationSigmaInput.value);
+
+    for (let s = 0; s < stepsPerFrame; s++) {
+        population.stepAll();
+        if (population.allDone()) {
+            const best = population.bestIndex();
+            runningReturns.push(population.fitnesses[best]);
+            population.nextGeneration(sigma);
+        }
+    }
+
+    policy = population.networks[population.bestIndex()];
+    latestActionProbs = policy.forward(population.envs[population.bestIndex()].state).probs;
+
+    updateMetrics();
+    updatePolicyInsight();
+    drawChart();
+    updateNetworkViz();
+    drawEnvMulti();
+}
+
 function stepLoop() {
     if (!isPaused) {
+        if (algorithm === 'ga') {
+            stepLoopGA();
+            requestAnimationFrame(stepLoop);
+            return;
+        }
         const stepsPerFrame = parseInt(speedSlider.value);
-        
+
         for (let s = 0; s < stepsPerFrame; s++) {
             const state = env.state;
             const action = chooseAction(state);
             const { state: nextState, reward, done } = env.step(action);
-            
+
             episodeSteps += 1;
             episodeRewards += reward;
-            
+
             if (!isTestMode) {
                 episodeHistory.push({ state: state.slice(), action: action, reward: reward });
             }
@@ -632,7 +872,7 @@ function stepLoop() {
                     policy.trainEpisode(states, actions, returns);
                     runningReturns.push(episodeRewards);
                 }
-                
+
                 episode += 1;
                 episodeSteps = 0;
                 episodeRewards = 0;
@@ -640,7 +880,7 @@ function stepLoop() {
                 env.reset();
             }
         }
-        
+
         updateMetrics();
         updatePolicyInsight();
         drawChart();

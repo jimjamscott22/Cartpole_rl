@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"D:\\\\Code\\\\JavaScript\\\\Cartpole_rl\" -Recurse)",
+      "Bash(Select-Object -First 50)",
+      "Bash(Format-Table FullName)"
+    ]
+  }
+}

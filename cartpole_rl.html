@@ -23,7 +23,15 @@
                     <button id="pauseBtn" class="btn secondary">Pause</button>
                 </div>
                 
-                <div class="toggle-container">
+                <div class="control-group">
+                    <label>Algorithm</label>
+                    <select id="algoSelect">
+                        <option value="reinforce">REINFORCE (Policy Gradient)</option>
+                        <option value="ga">Genetic Algorithm</option>
+                    </select>
+                </div>
+
+                <div class="toggle-container" id="testModeContainer">
                     <label class="toggle-switch">
                         <input type="checkbox" id="testModeToggle">
                         <span class="slider round"></span>
@@ -36,12 +44,12 @@
                     <input type="range" id="speedSlider" min="1" max="50" value="1">
                 </div>
 
-                <div class="control-group">
+                <div class="control-group reinforce-only">
                     <label>Learning Rate</label>
                     <input type="number" id="lrInput" value="0.01" step="0.001">
                 </div>
 
-                <div class="control-group">
+                <div class="control-group reinforce-only">
                     <label>Gamma (Discount)</label>
                     <input type="number" id="gammaInput" value="0.99" step="0.01" max="1">
                 </div>
@@ -49,6 +57,16 @@
                 <div class="control-group">
                     <label>Hidden Nodes</label>
                     <input type="number" id="hiddenInput" value="8" min="1">
+                </div>
+
+                <div class="control-group ga-only" style="display:none;">
+                    <label>Population Size</label>
+                    <input type="number" id="popSizeInput" value="25" min="2" max="100">
+                </div>
+
+                <div class="control-group ga-only" style="display:none;">
+                    <label>Mutation σ</label>
+                    <input type="number" id="mutationSigmaInput" value="0.1" step="0.01" min="0">
                 </div>
 
                 <div class="control-group" style="margin-top: 10px;">
