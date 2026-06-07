@@ -1,61 +1,132 @@
+<div align="center">
+
+![CartPole RL Sandbox](assets/hero.svg)
+
 # 🚀 CartPole RL Sandbox
 
-Welcome to the **CartPole RL Sandbox**! This is a simple, lightweight, and pure-JavaScript implementation of the classic Reinforcement Learning environment (CartPole), bundled with a custom-built Policy Gradient neural network—all running entirely in your browser without any external machine learning libraries! 🤯
+**A from-scratch reinforcement-learning playground that runs entirely in your browser — zero ML dependencies.**
 
-![CartPole Dashboard Demo](https://upload.wikimedia.org/wikipedia/commons/thumb/1/1d/Cart-pole.svg/450px-Cart-pole.svg.png) <!-- Replace with an actual screenshot or GIF later! -->
+![JavaScript](https://img.shields.io/badge/JavaScript-vanilla-f7df1e?logo=javascript&logoColor=000)
+![Dependencies](https://img.shields.io/badge/dependencies-0-00f5d4)
+![Algorithms](https://img.shields.io/badge/algorithms-REINFORCE%20%2B%20GA-7b61ff)
+![Build](https://img.shields.io/badge/build%20step-none-ff6b9d)
+
+</div>
+
+---
+
+## 🗺️ At a Glance
+
+| | |
+|---|---|
+| 🎮 **Environment** | Classic CartPole physics — balance a pole on a moving cart |
+| 🧠 **Brain** | Hand-rolled neural net: `4 → N → 2`, tanh + softmax, manual backprop |
+| 🔀 **Two algorithms** | **REINFORCE** (policy gradient) and **Genetic Algorithm** (neuroevolution) |
+| 🎨 **UI** | Dark glassmorphism dashboard with 4 live visualizations |
+| 📦 **Stack** | 3 files · pure vanilla JS · no npm, no bundler, no TensorFlow |
+| ▶️ **Run** | Open `cartpole_rl.html` in a browser — that's it |
+
+---
+
+## 🧩 Architecture
+
+```mermaid
+flowchart LR
+    subgraph UI["🎨 cartpole_rl.html + style.css"]
+        C[Controls & Hyperparams]
+        V1[Canvas]
+        V2[Return Chart]
+        V3[Network SVG]
+        V4[Metrics Panel]
+    end
+
+    subgraph CORE["🧠 script.js"]
+        L["stepLoop (rAF)"]
+        E[CartPole<br/>physics env]
+        P[PolicyNetwork<br/>4 → N → 2]
+        POP[Population<br/>N envs + nets]
+    end
+
+    C -->|live params| L
+    L -->|REINFORCE| E
+    L -->|GA| POP
+    POP --> E
+    E -->|state| P
+    P -->|action probs| E
+    L --> V1 & V2 & V3 & V4
+```
+
+---
+
+## 🔁 How Learning Works
+
+```mermaid
+flowchart TD
+    A([Start episode]) --> B[Observe state<br/>x, ẋ, θ, θ̇]
+    B --> C{Mode?}
+    C -->|Train| D[Sample action<br/>from softmax]
+    C -->|Test| E[Argmax<br/>greedy action]
+    D --> F[Step physics]
+    E --> F
+    F --> G{Pole fell or<br/>500 steps?}
+    G -->|No| B
+    G -->|Yes — REINFORCE| H[Discounted returns<br/>→ manual gradient ascent]
+    G -->|Yes — GA| I[Rank fitness<br/>→ evolve next generation]
+    H --> A
+    I --> A
+```
+
+The agent earns **+1 per timestep** the pole stays upright. An episode ends when the cart drifts past ±2.4 units, the pole tips past 12°, or 500 steps elapse.
+
+---
 
 ## 🌟 Features
 
-*   **🎮 Pure Vanilla JS**: No TensorFlow.js, no PyTorch, no external dependencies. The environment and the neural network are written from scratch!
-*   **🎨 Stunning UI**: A sleek, dark-mode dashboard featuring glassmorphism, glowing neons, and modern typography.
-*   **🧠 Live Neural Network Visualization**: Watch the weights of the hidden layer shift and change colors in real-time as the agent learns.
-*   **🎯 Live Action Confidence**: See the policy's left/right action probabilities and confidence update continuously from the model's current state prediction.
-*   **📈 Performance Tracking**: A live, auto-updating chart showing the episode returns.
-*   **🧪 Test Mode**: Switch off exploration at any time to see your agent perform pure inference.
-*   **💾 Save & Load**: Found a hyperparameter combo that works? Save the trained model to a `.json` file and load it later!
+- **🎮 Pure Vanilla JS** — the environment, network, *and* gradients are written by hand. No TensorFlow.js, no ONNX.
+- **🧠 Live Network Visualization** — watch hidden-layer weights shift and recolor in real time as the agent learns.
+- **🎯 Action Confidence** — the policy's left/right probabilities update continuously from the current prediction.
+- **📈 Performance Tracking** — an auto-updating chart of episode returns (or best fitness in GA mode).
+- **🧬 Two Training Modes** — switch between gradient-based REINFORCE and population-based neuroevolution at runtime.
+- **🧪 Test Mode** — flip off exploration to watch pure greedy inference (REINFORCE only).
+- **💾 Save & Load** — export trained weights to a `.json` file and reload them later. A pre-trained `cartpole_model.json` is included.
 
-## 🛠️ How it Works
-
-1.  **The Environment**: The CartPole environment simulates a pole attached by an un-actuated joint to a cart, which moves along a frictionless track. The system is controlled by applying a force of +1 or -1 to the cart.
-2.  **The Goal**: Prevent the pole from falling over! A reward of `+1` is provided for every timestep that the pole remains upright.
-3.  **The Brain**: A simple Feed-Forward Neural Network (1 hidden layer).
-4.  **The Algorithm**: It uses **Policy Gradient (REINFORCE)**. The network outputs probabilities for moving left or right, and after every episode, it updates its weights via gradient ascent to increase the probability of actions that led to higher rewards.
+---
 
 ## 🕹️ Usage
 
-Simply open `cartpole_rl.html` in any modern web browser. 
+Open `cartpole_rl.html` in any modern browser. No install step.
 
-### Controls
+| Control | What it does |
+|---|---|
+| **Start / Pause** | Run or halt the simulation loop |
+| **Algorithm** | Choose REINFORCE or Genetic Algorithm |
+| **Test Mode** | Toggle exploration off (greedy inference) — REINFORCE only |
+| **Simulation Speed** | Steps per frame — crank it up to train faster |
+| **Learning Rate / Gamma / Hidden Nodes** | Live REINFORCE hyperparameters |
+| **Population / Mutation σ** | Live GA hyperparameters |
+| **Apply Params / Reset** | Restart the environment with new settings |
 
-*   **Start / Pause**: Control the simulation loop.
-*   **Test Mode Toggle**: When "Training Mode" is on, the agent samples actions based on probabilities (exploration). When "Testing Mode" is on, it greedily picks the best action (inference only).
-*   **Simulation Speed**: Speed up the rendering to train faster!
-*   **Hyperparameters**: Tweak the **Learning Rate**, **Gamma** (discount factor for future rewards), and the number of **Hidden Nodes**. Click **Apply Params / Reset** to restart the environment with your new settings.
+> 💡 All hyperparameters are **live** — they're read each frame (or each generation), so you can tune mid-training.
+
+---
+
+## 🧬 The Genetic Algorithm hook
+
+`evolve(networks, fitnesses, popSize, sigma)` in `script.js` is an intentionally open **TODO**. The default placeholder applies mutation with no selection pressure, so it doesn't learn — wiring in selection, elitism, and crossover is the exercise. Helpers `mutate(net, sigma)` and `cloneNetwork(net)` are provided.
 
 ---
 
-## 🚀 Proposing Future Upgrades
+## 🚀 Future Upgrades
 
-Looking to take this sandbox to the next level? Here are some awesome ways to build upon it:
-
-### 1. Upgrade the Algorithm (DQN / PPO)
-Currently, the sandbox uses a basic Policy Gradient. You could implement **Deep Q-Learning (DQN)** with an Experience Replay Buffer, or even **Proximal Policy Optimization (PPO)** for much faster and more stable convergence.
-
-### 2. Hardware Acceleration with TensorFlow.js
-While building the network from scratch is educational, swapping the custom `PolicyNetwork` class out for **TensorFlow.js** would allow you to build deeper networks, utilize GPU acceleration, and solve much harder problems.
-
-### 3. Add More Environments! 🌍
-The code structure is already decoupled into an `env` and `policy`. You could easily add more classic control problems from the OpenAI Gym suite, such as:
-*   🏔️ **MountainCar**
-*   ⏱️ **Pendulum**
-*   🌖 **LunarLander**
-
-### 4. Interactive Perturbations 🌪️
-Add mouse-drag events to the canvas! Allow the user to "flick" the pole or drag the cart while the agent is balancing it. This would perfectly demonstrate how robust the learned policy is against sudden, unexpected forces.
-
-### 5. Multi-Agent Training / Genetic Algorithms 🧬
-Instead of gradient descent, visualize 50 carts at once, all trying to balance the pole. Use a Genetic Algorithm (Neuroevolution) to select the best performing carts, mutate their weights, and breed the next generation!
+1. **Stronger algorithms** — DQN with experience replay, or PPO for faster, more stable convergence.
+2. **More environments** — MountainCar 🏔️, Pendulum ⏱️, LunarLander 🌖 (the `env`/`policy` split already supports this).
+3. **Interactive perturbations** — drag or flick the pole mid-balance to stress-test the learned policy.
+4. **Finish the GA** — implement real selection and crossover in `evolve(...)`.
 
 ---
+
+<div align="center">
 
 *Built with ❤️ and Vanilla JavaScript.*
+
+</div>
