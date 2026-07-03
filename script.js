@@ -840,6 +840,7 @@ function stepLoopGA() {
     drawChart();
     updateNetworkViz();
     drawEnvMulti();
+    updateLiveExplainerState(population.envs[population.bestIndex()].state);
 }
 
 function stepLoop() {
@@ -886,6 +887,7 @@ function stepLoop() {
         drawChart();
         updateNetworkViz();
         drawEnv(env.state);
+        updateLiveExplainerState(env.state);
     }
     requestAnimationFrame(stepLoop);
 }
@@ -899,3 +901,98 @@ drawEnv(env.state);
 drawChart();
 updateMetrics();
 requestAnimationFrame(stepLoop);
+
+// Visual Explainer Modal & Real-Time Live Inspection
+function updateLiveExplainerState(state) {
+    const explainerModal = document.getElementById('explainerModal');
+    if (!explainerModal || !explainerModal.classList.contains('active')) return;
+    if (!state || state.length < 4) return;
+
+    const x = state[0];
+    const xDot = state[1];
+    const theta = state[2];
+    const thetaDot = state[3];
+
+    const liveX = document.getElementById('liveStateX');
+    const liveXDot = document.getElementById('liveStateXDot');
+    const liveTheta = document.getElementById('liveStateTheta');
+    const liveThetaDot = document.getElementById('liveStateThetaDot');
+
+    if (liveX) liveX.textContent = x.toFixed(2);
+    if (liveXDot) liveXDot.textContent = xDot.toFixed(2);
+    if (liveTheta) liveTheta.textContent = (theta * 180 / Math.PI).toFixed(1) + '°';
+    if (liveThetaDot) liveThetaDot.textContent = thetaDot.toFixed(2);
+
+    const normX = Math.min(Math.max((x + 2.4) / 4.8, 0), 1) * 100;
+    const barX = document.getElementById('barStateX');
+    if (barX) { barX.style.width = `${normX}%`; }
+
+    const normXDot = Math.min(Math.max((xDot + 3) / 6, 0), 1) * 100;
+    const barXDot = document.getElementById('barStateXDot');
+    if (barXDot) { barXDot.style.width = `${normXDot}%`; }
+
+    const normTheta = Math.min(Math.max((theta + 0.21) / 0.42, 0), 1) * 100;
+    const barTheta = document.getElementById('barStateTheta');
+    if (barTheta) { barTheta.style.width = `${normTheta}%`; }
+
+    const normThetaDot = Math.min(Math.max((thetaDot + 3) / 6, 0), 1) * 100;
+    const barThetaDot = document.getElementById('barStateThetaDot');
+    if (barThetaDot) { barThetaDot.style.width = `${normThetaDot}%`; }
+}
+
+const openExplainerBtn = document.getElementById('openExplainerBtn');
+const sidebarExplainerBtn = document.getElementById('sidebarExplainerBtn');
+const closeExplainerBtn = document.getElementById('closeExplainerBtn');
+const explainerModalElement = document.getElementById('explainerModal');
+const modalBtnClose = document.querySelector('.modal-btn-close');
+
+function openExplainer() {
+    if (explainerModalElement) {
+        explainerModalElement.classList.add('active');
+        const currentState = algorithm === 'ga' && population ? population.envs[population.bestIndex()].state : env.state;
+        updateLiveExplainerState(currentState);
+    }
+}
+
+function closeExplainer() {
+    if (explainerModalElement) explainerModalElement.classList.remove('active');
+}
+
+if (openExplainerBtn) openExplainerBtn.addEventListener('click', openExplainer);
+if (sidebarExplainerBtn) sidebarExplainerBtn.addEventListener('click', openExplainer);
+if (closeExplainerBtn) closeExplainerBtn.addEventListener('click', closeExplainer);
+if (modalBtnClose) modalBtnClose.addEventListener('click', closeExplainer);
+if (explainerModalElement) {
+    explainerModalElement.addEventListener('click', (e) => {
+        if (e.target === explainerModalElement) closeExplainer();
+    });
+}
+window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeExplainer();
+});
+
+// Explainer Tabs
+document.querySelectorAll('.explainer-tab').forEach(tabBtn => {
+    tabBtn.addEventListener('click', () => {
+        document.querySelectorAll('.explainer-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+        
+        tabBtn.classList.add('active');
+        const targetId = `tab-${tabBtn.getAttribute('data-tab')}`;
+        const targetPane = document.getElementById(targetId);
+        if (targetPane) targetPane.classList.add('active');
+    });
+});
+
+// Algo Pill Toggles
+document.querySelectorAll('.algo-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+        document.querySelectorAll('.algo-pill').forEach(p => p.classList.remove('active'));
+        document.querySelectorAll('.algo-explainer-content').forEach(c => c.style.display = 'none');
+        
+        pill.classList.add('active');
+        const showId = pill.getAttribute('data-show');
+        const targetContent = document.getElementById(showId);
+        if (targetContent) targetContent.style.display = 'block';
+    });
+});
